@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shell API 余额监控助手",
-  "version": "1.0.0",
-  "description": "实时监控Shell API余额，低额提醒，避免API调用中断",
+  "version": "1.1.0",
+  "description": "实时监控Shell API余额，低额提醒，避免API调用中断，支持多系统监控",
   
   "icons": {
     "16": "icons/icon16.png",

@@ -91,10 +91,11 @@ function renderSystemsList(systems) {
         const systemElement = document.createElement('div');
         systemElement.className = 'system-item';
         systemElement.id = `system-${system.id}`;
+        systemElement.dataset.id = system.id;
         
         const systemHTML = `
             <div class="system-header">
-                <span class="system-name">${system.name}</span>
+                <span class="system-name"><span class="drag-handle">⋮⋮</span>${system.name}</span>
                 <div class="action-buttons">
                     <button class="action-button edit-button" data-id="${system.id}">编辑</button>
                     <button class="action-button delete-button" data-id="${system.id}">删除</button>
@@ -134,6 +135,9 @@ function renderSystemsList(systems) {
         // 获取该系统的余额
         updateSystemQuotaDisplay(system.id);
     });
+    
+    // 初始化排序功能
+    initSortable();
 }
 
 // 显示添加系统表单
@@ -567,5 +571,59 @@ function debugTimer() {
         } else {
             showMessage('获取定时器状态失败: ' + (response ? response.error : '未知错误'), 'error');
         }
+    });
+}
+
+// 初始化排序功能
+function initSortable() {
+    const systemsList = document.getElementById('systemsList');
+    
+    // 初始化Sortable
+    new Sortable(systemsList, {
+        animation: 150, // 动画速度
+        handle: '.drag-handle', // 拖动手柄
+        ghostClass: 'sortable-ghost', // 拖动时的类名
+        chosenClass: 'sortable-chosen', // 选中时的类名
+        onEnd: function(evt) {
+            // 排序结束后保存新顺序
+            saveSystemsOrder();
+        }
+    });
+}
+
+// 保存系统排序
+function saveSystemsOrder() {
+    const systemsList = document.getElementById('systemsList');
+    const systemItems = systemsList.querySelectorAll('.system-item');
+    
+    // 获取当前所有系统
+    chrome.storage.sync.get(['systems'], function(result) {
+        let systems = result.systems || [];
+        
+        if (systems.length === 0) return;
+        
+        // 创建新的有序系统数组
+        const orderedSystems = [];
+        
+        // 按DOM顺序构建新数组
+        systemItems.forEach(function(item) {
+            const systemId = item.dataset.id;
+            const system = systems.find(s => s.id === systemId);
+            if (system) {
+                orderedSystems.push(system);
+            }
+        });
+        
+        // 保存新顺序
+        chrome.storage.sync.set({ systems: orderedSystems }, function() {
+            console.log('系统顺序已保存');
+            showMessage('系统顺序已更新', 'success');
+            
+            // 通知后台更新
+            chrome.runtime.sendMessage({
+                action: 'updateSystems',
+                data: { systems: orderedSystems }
+            });
+        });
     });
 } 

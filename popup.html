@@ -109,6 +109,33 @@
             border-radius: 6px;
             margin-bottom: 8px;
             border: 1px solid #eee;
+            cursor: move;
+            position: relative;
+        }
+
+        .system-item.sortable-ghost {
+            opacity: 0.5;
+            background: #c8ebfb;
+        }
+
+        .system-item.sortable-chosen {
+            background: #ebf7fd;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        .drag-handle {
+            cursor: move;
+            color: #999;
+            margin-right: 8px;
+            padding: 0 5px;
+        }
+
+        .drag-hint {
+            font-size: 12px;
+            color: #999;
+            font-style: italic;
+            margin-bottom: 8px;
+            text-align: center;
         }
 
         .system-header {
@@ -212,12 +239,15 @@
             margin-left: 4px;
         }
     </style>
+    <!-- 引入Sortable.js用于实现拖拽排序 -->
+    <script src="Sortable.min.js"></script>
 </head>
 <body>
     <div class="header">
         <h3>Shell API 余额监控</h3>
     </div>
     
+    <div class="drag-hint">可拖动系统项调整顺序</div>
     <div id="systemsList" class="system-list">
         <!-- 系统列表将通过JS动态添加 -->
     </div>
