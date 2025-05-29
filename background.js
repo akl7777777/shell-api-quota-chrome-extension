@@ -42,12 +42,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'forceCheckAll') {
         console.log('收到强制检查消息');
         forceCheckAllSystems()
-            .then(() => {
-                console.log('强制检查完成');
-                sendResponse({ success: true });
+            .then((result) => {
+                console.log('强制检查启动成功:', result.message);
+                sendResponse({ success: true, message: result.message });
             })
             .catch((error) => {
-                console.error('强制检查失败:', error);
+                console.error('强制检查启动失败:', error);
                 sendResponse({ success: false, error: error.message });
             });
         return true; // 异步响应
@@ -339,6 +339,8 @@ async function sendTestNotification() {
 
 // 强制检查所有系统（忽略时间间隔）
 async function forceCheckAllSystems() {
+    console.log('开始强制检查所有系统');
+    
     try {
         // 获取所有系统配置
         const result = await chrome.storage.sync.get(['systems']);
@@ -346,10 +348,27 @@ async function forceCheckAllSystems() {
         
         if (systems.length === 0) {
             console.log('没有配置系统，跳过检查');
-            return;
+            return { message: '没有配置系统' };
         }
         
         console.log(`强制检查 ${systems.length} 个系统的余额`);
+        
+        // 启动后台检查进程，不等待完成
+        performForceCheck(systems);
+        
+        // 立即返回，不等待所有检查完成
+        return { message: `已启动 ${systems.length} 个系统的强制检查` };
+        
+    } catch (error) {
+        console.error('强制检查所有系统余额失败:', error);
+        throw error;
+    }
+}
+
+// 执行实际的强制检查（在后台运行）
+async function performForceCheck(systems) {
+    try {
+        console.log('开始执行后台强制检查');
         
         // 检查每个系统，无视时间间隔
         for (const system of systems) {
@@ -358,7 +377,7 @@ async function forceCheckAllSystems() {
                 await checkSystemQuota(system);
                 
                 // 稍微延迟，避免同时发送太多请求
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
             } catch (error) {
                 console.error(`强制检查系统 ${system.name} 余额失败:`, error);
@@ -367,8 +386,9 @@ async function forceCheckAllSystems() {
         
         // 更新图标徽章状态
         await updateBadgeStatus();
+        console.log('后台强制检查完成');
         
     } catch (error) {
-        console.error('强制检查所有系统余额失败:', error);
+        console.error('后台强制检查失败:', error);
     }
 } 

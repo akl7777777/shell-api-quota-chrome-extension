@@ -375,12 +375,12 @@ function forceCheckAll() {
             return;
         }
         
-        if (response && response.success) {
-            showMessage('强制检查完成', 'success');
-            // 刷新显示
+        if (response && response.message) {
+            showMessage(response.message, 'success');
+            // 延迟一段时间后刷新显示，让后台检查有时间完成
             setTimeout(() => {
                 loadSystems();
-            }, 2000);
+            }, 3000);
         } else {
             showMessage('强制检查失败: ' + (response ? response.error : '未知错误'), 'error');
         }
