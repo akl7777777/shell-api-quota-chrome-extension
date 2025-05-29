@@ -53,6 +53,7 @@ function loadSystems() {
                             name: '默认系统',
                             apiUrl: oldConfig.apiUrl,
                             accessToken: oldConfig.accessToken,
+                            userId: '',
                             threshold: oldConfig.threshold || 20,
                             checkInterval: oldConfig.checkInterval || 5
                         };
@@ -141,6 +142,7 @@ function showAddSystemForm() {
     document.getElementById('systemName').value = '';
     document.getElementById('apiUrl').value = '';
     document.getElementById('accessToken').value = '';
+    document.getElementById('userId').value = '';
     document.getElementById('threshold').value = '20';
     document.getElementById('checkInterval').value = '10';
     document.getElementById('systemId').value = '';
@@ -168,6 +170,7 @@ function editSystem(systemId) {
             document.getElementById('systemName').value = system.name;
             document.getElementById('apiUrl').value = system.apiUrl;
             document.getElementById('accessToken').value = system.accessToken;
+            document.getElementById('userId').value = system.userId || '';
             document.getElementById('threshold').value = system.threshold;
             document.getElementById('checkInterval').value = system.checkInterval;
             document.getElementById('systemId').value = system.id;
@@ -209,6 +212,7 @@ function saveSystem() {
     const name = document.getElementById('systemName').value.trim();
     const apiUrl = document.getElementById('apiUrl').value.trim();
     const accessToken = document.getElementById('accessToken').value.trim();
+    const userId = document.getElementById('userId').value.trim();
     const threshold = parseFloat(document.getElementById('threshold').value) || 20;
     let checkInterval = parseInt(document.getElementById('checkInterval').value) || 10;
     
@@ -247,6 +251,7 @@ function saveSystem() {
                     name,
                     apiUrl,
                     accessToken,
+                    userId,
                     threshold,
                     checkInterval
                 };
@@ -258,6 +263,7 @@ function saveSystem() {
                 name,
                 apiUrl,
                 accessToken,
+                userId,
                 threshold,
                 checkInterval
             });
@@ -304,7 +310,7 @@ function refreshSystem(systemId) {
             quotaElement.textContent = '加载中...';
         }
         
-        fetchQuota(system.apiUrl, system.accessToken)
+        fetchQuota(system.apiUrl, system.accessToken, system.userId)
             .then(function(quota) {
                 console.log(`系统 ${system.name} 余额:`, quota);
                 
@@ -431,18 +437,33 @@ function updateSystemQuotaDisplay(systemId) {
 }
 
 // 获取余额
-function fetchQuota(apiUrl, accessToken) {
+function fetchQuota(apiUrl, accessToken, userId) {
     // 使用正确的API端点
     const url = `${apiUrl}/api/user/self`;
     
     console.log('发送API请求:', url);
     
+    // 准备请求头
+    const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+    };
+    
+    // 添加User ID请求头（如果提供了userId）
+    if (userId) {
+        // 支持多种格式的用户ID请求头
+        headers['New-Api-User'] = userId;   // NewBingXMY格式
+        headers['Rix-Api-User'] = userId;   // ShellAPI格式
+        headers['Api-User'] = userId;       // 标准格式
+        headers['X-Api-User'] = userId;     // X-前缀格式
+        headers['User-Id'] = userId;        // 简单格式
+        
+        console.log(`添加了用户ID请求头: ${userId}`);
+    }
+    
     return fetch(url, {
         method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        }
+        headers: headers
     })
     .then(function(response) {
         console.log('API响应状态:', response.status);

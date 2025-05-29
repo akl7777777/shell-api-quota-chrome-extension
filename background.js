@@ -210,7 +210,7 @@ async function checkSystemQuota(system) {
         }
         
         // 获取当前余额
-        const quota = await fetchQuota(system.apiUrl, system.accessToken);
+        const quota = await fetchQuota(system.apiUrl, system.accessToken, system.userId);
         const threshold = system.threshold || 20;
         
         // 保存余额信息
@@ -245,15 +245,30 @@ async function checkSystemQuota(system) {
 }
 
 // 获取余额
-async function fetchQuota(apiUrl, accessToken) {
+async function fetchQuota(apiUrl, accessToken, userId) {
     const url = `${apiUrl}/api/user/self`;
+    
+    // 准备请求头
+    const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+    };
+    
+    // 添加User ID请求头（如果提供了userId）
+    if (userId) {
+        // 支持多种格式的用户ID请求头
+        headers['New-Api-User'] = userId;   // NewBingXMY格式
+        headers['Rix-Api-User'] = userId;   // ShellAPI格式
+        headers['Api-User'] = userId;       // 标准格式
+        headers['X-Api-User'] = userId;     // X-前缀格式
+        headers['User-Id'] = userId;        // 简单格式
+        
+        console.log(`添加了用户ID请求头: ${userId}`);
+    }
     
     const response = await fetch(url, {
         method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        }
+        headers: headers
     });
     
     if (!response.ok) {
@@ -397,7 +412,29 @@ async function performForceCheck(systems) {
         for (const system of systems) {
             try {
                 console.log(`强制检查系统 ${system.name} 的余额`);
-                await checkSystemQuota(system);
+                try {
+                    const quota = await fetchQuota(system.apiUrl, system.accessToken, system.userId);
+                    // 更新余额数据
+                    const quotaData = await chrome.storage.local.get(['systemsQuota']);
+                    const systemsQuota = quotaData.systemsQuota || {};
+                    
+                    systemsQuota[system.id] = {
+                        quota: quota,
+                        lastUpdate: new Date().toISOString()
+                    };
+                    
+                    await chrome.storage.local.set({ systemsQuota });
+                    
+                    console.log(`系统 ${system.name} 当前余额: $${quota}, 阈值: $${system.threshold}`);
+                    
+                    // 检查是否需要通知
+                    if (quota <= system.threshold) {
+                        await sendLowBalanceNotification(system.name, quota, system.threshold);
+                    }
+                    
+                } catch (error) {
+                    console.error(`强制检查系统 ${system.name} 余额失败:`, error);
+                }
                 
                 // 稍微延迟，避免同时发送太多请求
                 await new Promise(resolve => setTimeout(resolve, 500));
@@ -456,9 +493,11 @@ async function debugTimerStatus() {
                 const quotaInfo = systemsQuota[system.id];
                 if (quotaInfo) {
                     const lastUpdate = new Date(quotaInfo.lastUpdate).toLocaleString();
-                    status.push(`- ${system.name}: 最后更新 ${lastUpdate}, 余额 $${quotaInfo.quota.toFixed(2)}`);
+                    const userIdInfo = system.userId ? `UserID: ${system.userId}, ` : '';
+                    status.push(`- ${system.name}: ${userIdInfo}最后更新 ${lastUpdate}, 余额 $${quotaInfo.quota.toFixed(2)}`);
                 } else {
-                    status.push(`- ${system.name}: 从未更新`);
+                    const userIdInfo = system.userId ? `UserID: ${system.userId}, ` : '';
+                    status.push(`- ${system.name}: ${userIdInfo}从未更新`);
                 }
             });
         }
