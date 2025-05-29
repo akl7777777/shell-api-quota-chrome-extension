@@ -21,6 +21,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: true });
         });
         return true; // 异步响应
+    } else if (message.action === 'updateSystems') {
+        console.log('收到系统更新消息');
+        setupAlarm().then(() => {
+            sendResponse({ success: true });
+        });
+        return true; // 异步响应
     } else if (message.action === 'testNotification') {
         console.log('收到测试通知消息');
         sendTestNotification().then(() => {
@@ -34,7 +40,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
         console.log('定时检查余额触发');
-        checkQuotaAndNotify();
+        checkAllSystemsQuota();
     }
 });
 
@@ -44,65 +50,131 @@ async function setupAlarm() {
         // 清除现有定时器
         await chrome.alarms.clear(ALARM_NAME);
         
-        // 获取检查间隔设置
-        const result = await chrome.storage.sync.get(['checkInterval']);
-        const intervalMinutes = result.checkInterval || 5;
+        // 获取系统配置
+        const result = await chrome.storage.sync.get(['systems']);
+        const systems = result.systems || [];
+        
+        // 如果没有配置系统，则不设置定时器
+        if (systems.length === 0) {
+            console.log('没有配置系统，不设置定时器');
+            return;
+        }
+        
+        // 找出最小的检查间隔
+        let minInterval = 60; // 默认最大60分钟
+        systems.forEach(system => {
+            const interval = system.checkInterval || 5;
+            if (interval < minInterval) {
+                minInterval = interval;
+            }
+        });
         
         // 创建新的定时器
         await chrome.alarms.create(ALARM_NAME, {
             delayInMinutes: 1, // 1分钟后首次检查
-            periodInMinutes: intervalMinutes
+            periodInMinutes: minInterval
         });
         
-        console.log(`定时器已设置，检查间隔: ${intervalMinutes}分钟`);
+        console.log(`定时器已设置，最小检查间隔: ${minInterval}分钟`);
     } catch (error) {
         console.error('设置定时器失败:', error);
     }
 }
 
-// 检查余额并发送通知
-async function checkQuotaAndNotify() {
+// 检查所有系统余额
+async function checkAllSystemsQuota() {
     try {
-        // 获取设置
-        const settings = await chrome.storage.sync.get([
-            'apiUrl', 
-            'accessToken', 
-            'threshold'
-        ]);
+        // 获取所有系统配置
+        const result = await chrome.storage.sync.get(['systems']);
+        const systems = result.systems || [];
         
-        if (!settings.apiUrl || !settings.accessToken) {
-            console.log('API设置未配置，跳过检查');
+        if (systems.length === 0) {
+            console.log('没有配置系统，跳过检查');
+            return;
+        }
+        
+        console.log(`开始检查 ${systems.length} 个系统的余额`);
+        
+        // 获取当前时间，用于检查是否需要更新
+        const now = new Date();
+        
+        // 检查每个系统
+        for (const system of systems) {
+            try {
+                // 获取上次更新时间
+                const quotaData = await chrome.storage.local.get(['systemsQuota']);
+                const systemsQuota = quotaData.systemsQuota || {};
+                const lastUpdateInfo = systemsQuota[system.id];
+                
+                // 如果有上次更新时间，检查是否需要更新
+                if (lastUpdateInfo && lastUpdateInfo.lastUpdate) {
+                    const lastUpdateTime = new Date(lastUpdateInfo.lastUpdate);
+                    const diffMinutes = (now - lastUpdateTime) / (1000 * 60);
+                    
+                    // 如果未达到检查间隔，则跳过
+                    if (diffMinutes < system.checkInterval) {
+                        console.log(`系统 ${system.name} 的检查间隔未到，跳过检查`);
+                        continue;
+                    }
+                }
+                
+                console.log(`检查系统 ${system.name} 的余额`);
+                await checkSystemQuota(system);
+                
+                // 稍微延迟，避免同时发送太多请求
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+            } catch (error) {
+                console.error(`检查系统 ${system.name} 余额失败:`, error);
+            }
+        }
+        
+        // 更新图标徽章状态
+        await updateBadgeStatus();
+        
+    } catch (error) {
+        console.error('检查所有系统余额失败:', error);
+    }
+}
+
+// 检查单个系统余额并发送通知
+async function checkSystemQuota(system) {
+    try {
+        if (!system.apiUrl || !system.accessToken) {
+            console.log(`系统 ${system.name} 的API设置未配置，跳过检查`);
             return;
         }
         
         // 获取当前余额
-        const quota = await fetchQuota(settings.apiUrl, settings.accessToken);
-        const threshold = settings.threshold || 20;
+        const quota = await fetchQuota(system.apiUrl, system.accessToken);
+        const threshold = system.threshold || 20;
         
         // 保存余额信息
-        await chrome.storage.local.set({
-            currentQuota: quota,
-            lastUpdate: new Date().toLocaleString()
-        });
+        const quotaData = await chrome.storage.local.get(['systemsQuota']);
+        const systemsQuota = quotaData.systemsQuota || {};
         
-        console.log(`当前余额: $${quota}, 阈值: $${threshold}`);
+        systemsQuota[system.id] = {
+            quota: quota,
+            lastUpdate: new Date().toLocaleString()
+        };
+        
+        await chrome.storage.local.set({ systemsQuota });
+        
+        console.log(`系统 ${system.name} 当前余额: $${quota}, 阈值: $${threshold}`);
         
         // 检查是否需要通知
         if (quota <= threshold) {
-            await sendLowBalanceNotification(quota, threshold);
+            await sendLowBalanceNotification(system.name, quota, threshold);
         }
         
-        // 更新插件图标（可选）
-        await updateBadge(quota, threshold);
-        
     } catch (error) {
-        console.error('检查余额失败:', error);
+        console.error(`检查系统 ${system.name} 余额失败:`, error);
         
         // 显示错误通知
         await chrome.notifications.create({
             type: 'basic',
             iconUrl: 'icons/icon48.png',
-            title: '余额检查失败',
+            title: `系统 ${system.name} 余额检查失败`,
             message: `错误: ${error.message}`
         });
     }
@@ -142,35 +214,54 @@ async function fetchQuota(apiUrl, accessToken) {
 }
 
 // 发送余额不足通知
-async function sendLowBalanceNotification(quota, threshold) {
-    const notificationId = `low-balance-${Date.now()}`;
+async function sendLowBalanceNotification(systemName, quota, threshold) {
+    const notificationId = `low-balance-${systemName}-${Date.now()}`;
     
     await chrome.notifications.create(notificationId, {
         type: 'basic',
         iconUrl: 'icons/icon48.png',
-        title: '⚠️ Shell API 余额不足警告',
+        title: `⚠️ ${systemName} Shell API 余额不足警告`,
         message: `当前余额 $${quota.toFixed(2)} 已低于设定阈值 $${threshold.toFixed(2)}，请及时充值！`,
         priority: 2
     });
     
-    console.log(`已发送余额不足通知: $${quota} <= $${threshold}`);
+    console.log(`已发送 ${systemName} 余额不足通知: $${quota} <= $${threshold}`);
 }
 
 // 更新插件图标徽章
-async function updateBadge(quota, threshold) {
+async function updateBadgeStatus() {
     try {
-        if (quota <= threshold) {
+        // 获取所有系统配置和余额
+        const systemsConfig = await chrome.storage.sync.get(['systems']);
+        const systems = systemsConfig.systems || [];
+        
+        const quotaData = await chrome.storage.local.get(['systemsQuota']);
+        const systemsQuota = quotaData.systemsQuota || {};
+        
+        // 检查是否有任何系统余额低于阈值
+        let lowBalanceSystems = 0;
+        let lowBalanceDetails = [];
+        
+        for (const system of systems) {
+            const quotaInfo = systemsQuota[system.id];
+            if (quotaInfo && quotaInfo.quota <= system.threshold) {
+                lowBalanceSystems++;
+                lowBalanceDetails.push(`${system.name}: $${quotaInfo.quota.toFixed(2)}`);
+            }
+        }
+        
+        if (lowBalanceSystems > 0) {
             // 余额不足时显示警告
-            await chrome.action.setBadgeText({ text: '!' });
+            await chrome.action.setBadgeText({ text: lowBalanceSystems.toString() });
             await chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
             await chrome.action.setTitle({ 
-                title: `余额不足: $${quota.toFixed(2)} <= $${threshold.toFixed(2)}` 
+                title: `${lowBalanceSystems} 个系统余额不足:\n${lowBalanceDetails.join('\n')}` 
             });
         } else {
             // 余额充足时清除徽章
             await chrome.action.setBadgeText({ text: '' });
             await chrome.action.setTitle({ 
-                title: `当前余额: $${quota.toFixed(2)}` 
+                title: `所有系统余额充足` 
             });
         }
     } catch (error) {

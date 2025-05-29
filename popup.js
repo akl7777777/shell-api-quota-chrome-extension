@@ -15,15 +15,14 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOMContentLoaded 事件触发');
     
     try {
-        // 加载设置
-        loadSettings();
-        
-        // 更新显示
-        updateQuotaDisplay();
+        // 加载系统列表
+        loadSystems();
         
         // 绑定事件
-        document.getElementById('saveBtn').addEventListener('click', saveSettings);
-        document.getElementById('refreshBtn').addEventListener('click', refreshQuota);
+        document.getElementById('addSystemBtn').addEventListener('click', showAddSystemForm);
+        document.getElementById('saveBtn').addEventListener('click', saveSystem);
+        document.getElementById('cancelBtn').addEventListener('click', hideSystemForm);
+        document.getElementById('refreshAllBtn').addEventListener('click', refreshAllSystems);
         document.getElementById('testNotificationBtn').addEventListener('click', testNotification);
         
         console.log('事件绑定完成');
@@ -32,36 +31,191 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// 加载保存的设置
-function loadSettings() {
+// 生成唯一ID
+function generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}
+
+// 加载系统列表
+function loadSystems() {
     try {
-        chrome.storage.sync.get([
-            'apiUrl', 
-            'accessToken', 
-            'threshold', 
-            'checkInterval'
-        ], function(result) {
-            document.getElementById('apiUrl').value = result.apiUrl || '';
-            document.getElementById('accessToken').value = result.accessToken || '';
-            document.getElementById('threshold').value = result.threshold || '20';
-            document.getElementById('checkInterval').value = result.checkInterval || '5';
-            document.getElementById('thresholdDisplay').textContent = `$${result.threshold || '20'}`;
+        chrome.storage.sync.get(['systems'], function(result) {
+            const systems = result.systems || [];
+            
+            // 如果没有系统记录，但有旧版配置，则转换为新格式
+            if (systems.length === 0) {
+                chrome.storage.sync.get(['apiUrl', 'accessToken', 'threshold', 'checkInterval'], function(oldConfig) {
+                    if (oldConfig.apiUrl && oldConfig.accessToken) {
+                        const defaultSystem = {
+                            id: generateId(),
+                            name: '默认系统',
+                            apiUrl: oldConfig.apiUrl,
+                            accessToken: oldConfig.accessToken,
+                            threshold: oldConfig.threshold || 20,
+                            checkInterval: oldConfig.checkInterval || 5
+                        };
+                        
+                        systems.push(defaultSystem);
+                        chrome.storage.sync.set({ systems });
+                        renderSystemsList(systems);
+                        
+                        // 迁移完成后，清除旧配置
+                        chrome.storage.sync.remove(['apiUrl', 'accessToken', 'threshold', 'checkInterval']);
+                    } else {
+                        renderSystemsList(systems);
+                    }
+                });
+            } else {
+                renderSystemsList(systems);
+            }
         });
     } catch (error) {
-        console.error('加载设置失败:', error);
+        console.error('加载系统列表失败:', error);
     }
 }
 
-// 保存设置
-function saveSettings() {
-    console.log('保存设置被调用');
+// 渲染系统列表
+function renderSystemsList(systems) {
+    const systemsList = document.getElementById('systemsList');
+    systemsList.innerHTML = '';
     
+    if (systems.length === 0) {
+        systemsList.innerHTML = '<div class="system-item">尚未配置任何系统，请点击"添加新系统"按钮开始配置。</div>';
+        return;
+    }
+    
+    systems.forEach(function(system) {
+        const systemElement = document.createElement('div');
+        systemElement.className = 'system-item';
+        systemElement.id = `system-${system.id}`;
+        
+        const systemHTML = `
+            <div class="system-header">
+                <span class="system-name">${system.name}</span>
+                <div class="action-buttons">
+                    <button class="action-button edit-button" data-id="${system.id}">编辑</button>
+                    <button class="action-button delete-button" data-id="${system.id}">删除</button>
+                    <button class="action-button refresh-button" data-id="${system.id}">刷新</button>
+                </div>
+            </div>
+            <div class="system-balance">
+                <span>当前余额:</span>
+                <span class="quota-value" id="quota-${system.id}">--</span>
+            </div>
+            <div class="system-balance">
+                <span>提醒阈值:</span>
+                <span>$${system.threshold}</span>
+            </div>
+            <div class="system-balance">
+                <span>最后更新:</span>
+                <span id="lastUpdate-${system.id}">--</span>
+            </div>
+        `;
+        
+        systemElement.innerHTML = systemHTML;
+        systemsList.appendChild(systemElement);
+        
+        // 绑定事件
+        systemElement.querySelector('.edit-button').addEventListener('click', function() {
+            editSystem(system.id);
+        });
+        
+        systemElement.querySelector('.delete-button').addEventListener('click', function() {
+            deleteSystem(system.id);
+        });
+        
+        systemElement.querySelector('.refresh-button').addEventListener('click', function() {
+            refreshSystem(system.id);
+        });
+        
+        // 获取该系统的余额
+        updateSystemQuotaDisplay(system.id);
+    });
+}
+
+// 显示添加系统表单
+function showAddSystemForm() {
+    // 清空表单
+    document.getElementById('systemName').value = '';
+    document.getElementById('apiUrl').value = '';
+    document.getElementById('accessToken').value = '';
+    document.getElementById('threshold').value = '20';
+    document.getElementById('checkInterval').value = '5';
+    document.getElementById('systemId').value = '';
+    
+    // 更新表单标题
+    document.getElementById('formTitle').textContent = '添加系统';
+    
+    // 显示表单
+    document.getElementById('systemForm').style.display = 'block';
+}
+
+// 隐藏系统表单
+function hideSystemForm() {
+    document.getElementById('systemForm').style.display = 'none';
+}
+
+// 编辑系统
+function editSystem(systemId) {
+    chrome.storage.sync.get(['systems'], function(result) {
+        const systems = result.systems || [];
+        const system = systems.find(s => s.id === systemId);
+        
+        if (system) {
+            // 填充表单
+            document.getElementById('systemName').value = system.name;
+            document.getElementById('apiUrl').value = system.apiUrl;
+            document.getElementById('accessToken').value = system.accessToken;
+            document.getElementById('threshold').value = system.threshold;
+            document.getElementById('checkInterval').value = system.checkInterval;
+            document.getElementById('systemId').value = system.id;
+            
+            // 更新表单标题
+            document.getElementById('formTitle').textContent = '编辑系统';
+            
+            // 显示表单
+            document.getElementById('systemForm').style.display = 'block';
+        }
+    });
+}
+
+// 删除系统
+function deleteSystem(systemId) {
+    if (confirm('确定要删除此系统吗？此操作不可撤销。')) {
+        chrome.storage.sync.get(['systems'], function(result) {
+            let systems = result.systems || [];
+            systems = systems.filter(s => s.id !== systemId);
+            
+            chrome.storage.sync.set({ systems }, function() {
+                // 更新UI
+                renderSystemsList(systems);
+                showMessage('系统已删除', 'success');
+                
+                // 通知后台更新监控
+                chrome.runtime.sendMessage({
+                    action: 'updateSystems',
+                    data: { systems }
+                });
+            });
+        });
+    }
+}
+
+// 保存系统配置
+function saveSystem() {
+    const systemId = document.getElementById('systemId').value;
+    const name = document.getElementById('systemName').value.trim();
     const apiUrl = document.getElementById('apiUrl').value.trim();
     const accessToken = document.getElementById('accessToken').value.trim();
     const threshold = parseFloat(document.getElementById('threshold').value) || 20;
     const checkInterval = parseInt(document.getElementById('checkInterval').value) || 5;
     
     // 验证输入
+    if (!name) {
+        showMessage('请输入系统名称', 'error');
+        return;
+    }
+    
     if (!apiUrl) {
         showMessage('请输入API地址', 'error');
         return;
@@ -72,57 +226,168 @@ function saveSettings() {
         return;
     }
     
-    // 保存到浏览器存储
-    chrome.storage.sync.set({
-        apiUrl,
-        accessToken,
-        threshold,
-        checkInterval
-    }, function() {
-        // 更新显示
-        document.getElementById('thresholdDisplay').textContent = `$${threshold}`;
+    chrome.storage.sync.get(['systems'], function(result) {
+        let systems = result.systems || [];
         
-        // 发送消息给background script重新设置定时器
-        chrome.runtime.sendMessage({
-            action: 'updateSettings',
-            data: { apiUrl, accessToken, threshold, checkInterval }
+        if (systemId) {
+            // 更新现有系统
+            const index = systems.findIndex(s => s.id === systemId);
+            if (index !== -1) {
+                systems[index] = {
+                    id: systemId,
+                    name,
+                    apiUrl,
+                    accessToken,
+                    threshold,
+                    checkInterval
+                };
+            }
+        } else {
+            // 添加新系统
+            systems.push({
+                id: generateId(),
+                name,
+                apiUrl,
+                accessToken,
+                threshold,
+                checkInterval
+            });
+        }
+        
+        // 保存到浏览器存储
+        chrome.storage.sync.set({ systems }, function() {
+            // 隐藏表单
+            hideSystemForm();
+            
+            // 更新UI
+            renderSystemsList(systems);
+            
+            // 显示成功消息
+            showMessage('系统配置已保存', 'success');
+            
+            // 通知后台更新监控
+            chrome.runtime.sendMessage({
+                action: 'updateSystems',
+                data: { systems }
+            });
+            
+            // 立即刷新所有系统余额
+            refreshAllSystems();
         });
-        
-        showMessage('设置保存成功', 'success');
-        
-        // 立即检查一次余额
-        refreshQuota();
     });
 }
 
-// 刷新余额
-function refreshQuota() {
-    console.log('刷新余额被调用');
+// 刷新单个系统余额
+function refreshSystem(systemId) {
+    console.log(`刷新系统 ${systemId} 余额`);
     
-    chrome.storage.sync.get(['apiUrl', 'accessToken'], function(result) {
-        if (!result.apiUrl || !result.accessToken) {
-            showMessage('请先配置API地址和访问令牌', 'error');
+    chrome.storage.sync.get(['systems'], function(result) {
+        const systems = result.systems || [];
+        const system = systems.find(s => s.id === systemId);
+        
+        if (!system) {
+            showMessage('系统不存在', 'error');
             return;
         }
         
-        console.log('开始获取余额...');
-        fetchQuota(result.apiUrl, result.accessToken)
+        const quotaElement = document.getElementById(`quota-${systemId}`);
+        if (quotaElement) {
+            quotaElement.textContent = '加载中...';
+        }
+        
+        fetchQuota(system.apiUrl, system.accessToken)
             .then(function(quota) {
-                console.log('获取到的余额:', quota);
+                console.log(`系统 ${system.name} 余额:`, quota);
                 
                 // 保存余额信息
-                chrome.storage.local.set({
-                    currentQuota: quota,
-                    lastUpdate: new Date().toLocaleString()
-                }, function() {
-                    updateQuotaDisplay();
-                    showMessage('余额刷新成功', 'success');
+                chrome.storage.local.get(['systemsQuota'], function(data) {
+                    const systemsQuota = data.systemsQuota || {};
+                    
+                    systemsQuota[systemId] = {
+                        quota: quota,
+                        lastUpdate: new Date().toLocaleString()
+                    };
+                    
+                    chrome.storage.local.set({ systemsQuota }, function() {
+                        updateSystemQuotaDisplay(systemId);
+                        showMessage(`${system.name} 余额刷新成功`, 'success');
+                    });
                 });
             })
             .catch(function(error) {
-                console.error('刷新余额失败:', error);
-                showMessage('刷新失败: ' + error.message, 'error');
+                console.error(`刷新 ${system.name} 余额失败:`, error);
+                showMessage(`刷新 ${system.name} 失败: ${error.message}`, 'error');
+                
+                const quotaElement = document.getElementById(`quota-${systemId}`);
+                if (quotaElement) {
+                    quotaElement.textContent = '获取失败';
+                }
             });
+    });
+}
+
+// 刷新所有系统余额
+function refreshAllSystems() {
+    console.log('刷新所有系统余额');
+    
+    chrome.storage.sync.get(['systems'], function(result) {
+        const systems = result.systems || [];
+        
+        if (systems.length === 0) {
+            showMessage('尚未配置任何系统', 'error');
+            return;
+        }
+        
+        showMessage('开始刷新所有系统...', 'success');
+        
+        // 依次刷新每个系统
+        systems.forEach(function(system) {
+            setTimeout(function() {
+                refreshSystem(system.id);
+            }, 500); // 稍微错开请求时间
+        });
+    });
+}
+
+// 更新系统余额显示
+function updateSystemQuotaDisplay(systemId) {
+    chrome.storage.local.get(['systemsQuota'], function(data) {
+        const systemsQuota = data.systemsQuota || {};
+        const quotaInfo = systemsQuota[systemId];
+        
+        if (!quotaInfo) {
+            return;
+        }
+        
+        chrome.storage.sync.get(['systems'], function(result) {
+            const systems = result.systems || [];
+            const system = systems.find(s => s.id === systemId);
+            
+            if (!system) {
+                return;
+            }
+            
+            const quota = quotaInfo.quota || 0;
+            const threshold = system.threshold || 20;
+            const lastUpdate = quotaInfo.lastUpdate || '从未更新';
+            
+            const quotaElement = document.getElementById(`quota-${systemId}`);
+            if (quotaElement) {
+                quotaElement.textContent = `$${quota.toFixed(2)}`;
+                
+                // 如果余额低于阈值，改变颜色
+                if (quota <= threshold) {
+                    quotaElement.classList.add('quota-low');
+                } else {
+                    quotaElement.classList.remove('quota-low');
+                }
+            }
+            
+            const lastUpdateElement = document.getElementById(`lastUpdate-${systemId}`);
+            if (lastUpdateElement) {
+                lastUpdateElement.textContent = lastUpdate;
+            }
+        });
     });
 }
 
@@ -165,29 +430,6 @@ function fetchQuota(apiUrl, accessToken) {
         
         console.log('解析的余额(美元):', quota);
         return quota;
-    });
-}
-
-// 更新余额显示
-function updateQuotaDisplay() {
-    chrome.storage.local.get(['currentQuota', 'lastUpdate'], function(result) {
-        chrome.storage.sync.get(['threshold'], function(settings) {
-            const quota = result.currentQuota || 0;
-            const threshold = settings.threshold || 20;
-            const lastUpdate = result.lastUpdate || '从未更新';
-            
-            const quotaElement = document.getElementById('currentQuota');
-            quotaElement.textContent = `$${quota.toFixed(2)}`;
-            
-            // 如果余额低于阈值，改变颜色
-            if (quota <= threshold) {
-                quotaElement.classList.add('quota-low');
-            } else {
-                quotaElement.classList.remove('quota-low');
-            }
-            
-            document.getElementById('lastUpdate').textContent = lastUpdate;
-        });
     });
 }
 
