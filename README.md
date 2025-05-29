@@ -10,6 +10,11 @@
 - 可自定义检查间隔
 - 简洁直观的用户界面
 
+  <img width="561" alt="image" src="https://github.com/user-attachments/assets/b9a0de5c-da7e-4631-8fd0-97859f27f41a" />
+![image](https://github.com/user-attachments/assets/ef3388f2-7dca-48d2-aa27-9577c5b8c4c8)
+![image](https://github.com/user-attachments/assets/2abdb147-4d66-4432-ba90-fc7fbaa51380)
+
+
 ## 安装方法
 
 ### Chrome浏览器
@@ -48,7 +53,7 @@ MIT
 
 ## 作者
 
-Your Name
+akl7777777
 
 ## 鸣谢
 
