@@ -63,9 +63,11 @@ async function setupAlarm() {
         // 找出最小的检查间隔
         let minInterval = 60; // 默认最大60分钟
         systems.forEach(system => {
-            const interval = system.checkInterval || 5;
-            if (interval < minInterval) {
-                minInterval = interval;
+            const interval = system.checkInterval || 10;
+            // 确保间隔不低于10分钟
+            const safeInterval = interval < 10 ? 10 : interval;
+            if (safeInterval < minInterval) {
+                minInterval = safeInterval;
             }
         });
         
@@ -111,8 +113,11 @@ async function checkAllSystemsQuota() {
                     const lastUpdateTime = new Date(lastUpdateInfo.lastUpdate);
                     const diffMinutes = (now - lastUpdateTime) / (1000 * 60);
                     
+                    // 确保检查间隔不低于10分钟
+                    const safeInterval = system.checkInterval < 10 ? 10 : system.checkInterval;
+                    
                     // 如果未达到检查间隔，则跳过
-                    if (diffMinutes < system.checkInterval) {
+                    if (diffMinutes < safeInterval) {
                         console.log(`系统 ${system.name} 的检查间隔未到，跳过检查`);
                         continue;
                     }

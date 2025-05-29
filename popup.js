@@ -140,7 +140,7 @@ function showAddSystemForm() {
     document.getElementById('apiUrl').value = '';
     document.getElementById('accessToken').value = '';
     document.getElementById('threshold').value = '20';
-    document.getElementById('checkInterval').value = '5';
+    document.getElementById('checkInterval').value = '10';
     document.getElementById('systemId').value = '';
     
     // 更新表单标题
@@ -208,7 +208,14 @@ function saveSystem() {
     const apiUrl = document.getElementById('apiUrl').value.trim();
     const accessToken = document.getElementById('accessToken').value.trim();
     const threshold = parseFloat(document.getElementById('threshold').value) || 20;
-    const checkInterval = parseInt(document.getElementById('checkInterval').value) || 5;
+    let checkInterval = parseInt(document.getElementById('checkInterval').value) || 10;
+    
+    // 确保检查间隔不低于10分钟
+    if (checkInterval < 10) {
+        checkInterval = 10;
+        document.getElementById('checkInterval').value = '10';
+        showMessage('检查间隔已调整为最小值10分钟', 'error');
+    }
     
     // 验证输入
     if (!name) {
