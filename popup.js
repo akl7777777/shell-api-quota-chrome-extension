@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('refreshAllBtn').addEventListener('click', refreshAllSystems);
         document.getElementById('forceCheckBtn').addEventListener('click', forceCheckAll);
         document.getElementById('testNotificationBtn').addEventListener('click', testNotification);
+        document.getElementById('debugTimerBtn').addEventListener('click', debugTimer);
         
         console.log('事件绑定完成');
     } catch (error) {
@@ -522,4 +523,28 @@ function testNotification() {
     } else {
         showMessage('您的浏览器不支持通知功能', 'error');
     }
+}
+
+// 调试定时器按钮
+function debugTimer() {
+    console.log('调试定时器按钮被点击');
+    
+    // 发送消息给background script检查定时器状态
+    chrome.runtime.sendMessage({
+        action: 'debugTimer'
+    }, function(response) {
+        console.log('定时器调试响应:', response);
+        
+        if (chrome.runtime.lastError) {
+            console.error('Chrome runtime error:', chrome.runtime.lastError);
+            showMessage('通信失败: ' + chrome.runtime.lastError.message, 'error');
+            return;
+        }
+        
+        if (response && response.success) {
+            showMessage(`定时器状态: ${response.message}`, 'success');
+        } else {
+            showMessage('获取定时器状态失败: ' + (response ? response.error : '未知错误'), 'error');
+        }
+    });
 } 

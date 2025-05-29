@@ -5,12 +5,24 @@ const ALARM_NAME = 'quota-check';
 chrome.runtime.onInstalled.addListener(async () => {
     console.log('余额监控插件已安装');
     await setupAlarm();
+    
+    // 延迟5秒后执行首次检查
+    setTimeout(() => {
+        console.log('执行首次余额检查');
+        checkAllSystemsQuota();
+    }, 5000);
 });
 
 // 插件启动时初始化
 chrome.runtime.onStartup.addListener(async () => {
     console.log('余额监控插件已启动');
     await setupAlarm();
+    
+    // 延迟5秒后执行首次检查
+    setTimeout(() => {
+        console.log('执行启动后余额检查');
+        checkAllSystemsQuota();
+    }, 5000);
 });
 
 // 监听来自popup的消息
@@ -59,6 +71,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             })
             .catch((error) => {
                 console.error('发送测试通知失败:', error);
+                sendResponse({ success: false, error: error.message });
+            });
+        return true; // 异步响应
+    } else if (message.action === 'debugTimer') {
+        console.log('收到调试定时器消息');
+        debugTimerStatus()
+            .then((result) => {
+                sendResponse({ success: true, message: result });
+            })
+            .catch((error) => {
+                console.error('调试定时器失败:', error);
                 sendResponse({ success: false, error: error.message });
             });
         return true; // 异步响应
@@ -390,5 +413,60 @@ async function performForceCheck(systems) {
         
     } catch (error) {
         console.error('后台强制检查失败:', error);
+    }
+}
+
+// 调试定时器状态
+async function debugTimerStatus() {
+    try {
+        // 获取当前所有定时器
+        const alarms = await chrome.alarms.getAll();
+        console.log('所有定时器:', alarms);
+        
+        // 获取系统配置
+        const result = await chrome.storage.sync.get(['systems']);
+        const systems = result.systems || [];
+        
+        // 获取余额数据
+        const quotaData = await chrome.storage.local.get(['systemsQuota']);
+        const systemsQuota = quotaData.systemsQuota || {};
+        
+        let status = [];
+        status.push(`已配置系统数量: ${systems.length}`);
+        status.push(`当前定时器数量: ${alarms.length}`);
+        
+        if (alarms.length > 0) {
+            const quotaAlarm = alarms.find(alarm => alarm.name === ALARM_NAME);
+            if (quotaAlarm) {
+                const nextRun = new Date(quotaAlarm.scheduledTime).toLocaleString();
+                status.push(`余额检查定时器: 运行中`);
+                status.push(`下次运行时间: ${nextRun}`);
+                status.push(`运行间隔: ${quotaAlarm.periodInMinutes}分钟`);
+            } else {
+                status.push(`余额检查定时器: 未找到`);
+            }
+        } else {
+            status.push(`没有活动的定时器`);
+        }
+        
+        // 检查每个系统的最后更新时间
+        if (systems.length > 0) {
+            status.push('系统状态:');
+            systems.forEach(system => {
+                const quotaInfo = systemsQuota[system.id];
+                if (quotaInfo) {
+                    const lastUpdate = new Date(quotaInfo.lastUpdate).toLocaleString();
+                    status.push(`- ${system.name}: 最后更新 ${lastUpdate}, 余额 $${quotaInfo.quota.toFixed(2)}`);
+                } else {
+                    status.push(`- ${system.name}: 从未更新`);
+                }
+            });
+        }
+        
+        return status.join('\n');
+        
+    } catch (error) {
+        console.error('获取定时器状态失败:', error);
+        throw error;
     }
 } 
