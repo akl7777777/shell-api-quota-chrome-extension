@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('saveBtn').addEventListener('click', saveSystem);
         document.getElementById('cancelBtn').addEventListener('click', hideSystemForm);
         document.getElementById('refreshAllBtn').addEventListener('click', refreshAllSystems);
+        document.getElementById('forceCheckBtn').addEventListener('click', forceCheckAll);
         document.getElementById('testNotificationBtn').addEventListener('click', testNotification);
         
         console.log('事件绑定完成');
@@ -312,7 +313,7 @@ function refreshSystem(systemId) {
                     
                     systemsQuota[systemId] = {
                         quota: quota,
-                        lastUpdate: new Date().toLocaleString()
+                        lastUpdate: new Date().toISOString()
                     };
                     
                     chrome.storage.local.set({ systemsQuota }, function() {
@@ -356,6 +357,36 @@ function refreshAllSystems() {
     });
 }
 
+// 强制检查所有系统（用于调试）
+function forceCheckAll() {
+    console.log('强制检查所有系统');
+    
+    showMessage('开始强制检查所有系统...', 'success');
+    
+    // 发送消息给background script
+    chrome.runtime.sendMessage({
+        action: 'forceCheckAll'
+    }, function(response) {
+        console.log('强制检查响应:', response);
+        
+        if (chrome.runtime.lastError) {
+            console.error('Chrome runtime error:', chrome.runtime.lastError);
+            showMessage('通信失败: ' + chrome.runtime.lastError.message, 'error');
+            return;
+        }
+        
+        if (response && response.success) {
+            showMessage('强制检查完成', 'success');
+            // 刷新显示
+            setTimeout(() => {
+                loadSystems();
+            }, 2000);
+        } else {
+            showMessage('强制检查失败: ' + (response ? response.error : '未知错误'), 'error');
+        }
+    });
+}
+
 // 更新系统余额显示
 function updateSystemQuotaDisplay(systemId) {
     chrome.storage.local.get(['systemsQuota'], function(data) {
@@ -376,7 +407,7 @@ function updateSystemQuotaDisplay(systemId) {
             
             const quota = quotaInfo.quota || 0;
             const threshold = system.threshold || 20;
-            const lastUpdate = quotaInfo.lastUpdate || '从未更新';
+            const lastUpdate = quotaInfo.lastUpdate ? new Date(quotaInfo.lastUpdate).toLocaleString() : '从未更新';
             
             const quotaElement = document.getElementById(`quota-${systemId}`);
             if (quotaElement) {

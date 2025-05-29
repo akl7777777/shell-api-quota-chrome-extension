@@ -15,24 +15,56 @@ chrome.runtime.onStartup.addListener(async () => {
 
 // 监听来自popup的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('收到消息:', message);
+    
     if (message.action === 'updateSettings') {
         console.log('收到设置更新消息');
-        setupAlarm().then(() => {
-            sendResponse({ success: true });
-        });
+        setupAlarm()
+            .then(() => {
+                sendResponse({ success: true });
+            })
+            .catch((error) => {
+                console.error('设置更新失败:', error);
+                sendResponse({ success: false, error: error.message });
+            });
         return true; // 异步响应
     } else if (message.action === 'updateSystems') {
         console.log('收到系统更新消息');
-        setupAlarm().then(() => {
-            sendResponse({ success: true });
-        });
+        setupAlarm()
+            .then(() => {
+                sendResponse({ success: true });
+            })
+            .catch((error) => {
+                console.error('系统更新失败:', error);
+                sendResponse({ success: false, error: error.message });
+            });
+        return true; // 异步响应
+    } else if (message.action === 'forceCheckAll') {
+        console.log('收到强制检查消息');
+        forceCheckAllSystems()
+            .then(() => {
+                console.log('强制检查完成');
+                sendResponse({ success: true });
+            })
+            .catch((error) => {
+                console.error('强制检查失败:', error);
+                sendResponse({ success: false, error: error.message });
+            });
         return true; // 异步响应
     } else if (message.action === 'testNotification') {
         console.log('收到测试通知消息');
-        sendTestNotification().then(() => {
-            sendResponse({ success: true });
-        });
+        sendTestNotification()
+            .then(() => {
+                sendResponse({ success: true });
+            })
+            .catch((error) => {
+                console.error('发送测试通知失败:', error);
+                sendResponse({ success: false, error: error.message });
+            });
         return true; // 异步响应
+    } else {
+        console.log('未知消息类型:', message.action);
+        sendResponse({ success: false, error: 'Unknown action' });
     }
 });
 
@@ -116,11 +148,15 @@ async function checkAllSystemsQuota() {
                     // 确保检查间隔不低于10分钟
                     const safeInterval = system.checkInterval < 10 ? 10 : system.checkInterval;
                     
+                    console.log(`系统 ${system.name}: 上次更新时间=${lastUpdateInfo.lastUpdate}, 间隔=${diffMinutes.toFixed(2)}分钟, 需要间隔=${safeInterval}分钟`);
+                    
                     // 如果未达到检查间隔，则跳过
                     if (diffMinutes < safeInterval) {
                         console.log(`系统 ${system.name} 的检查间隔未到，跳过检查`);
                         continue;
                     }
+                } else {
+                    console.log(`系统 ${system.name} 没有上次更新记录，将进行检查`);
                 }
                 
                 console.log(`检查系统 ${system.name} 的余额`);
@@ -160,7 +196,7 @@ async function checkSystemQuota(system) {
         
         systemsQuota[system.id] = {
             quota: quota,
-            lastUpdate: new Date().toLocaleString()
+            lastUpdate: new Date().toISOString()
         };
         
         await chrome.storage.local.set({ systemsQuota });
@@ -298,5 +334,41 @@ async function sendTestNotification() {
     } catch (error) {
         console.error('发送测试通知失败:', error);
         throw error;
+    }
+}
+
+// 强制检查所有系统（忽略时间间隔）
+async function forceCheckAllSystems() {
+    try {
+        // 获取所有系统配置
+        const result = await chrome.storage.sync.get(['systems']);
+        const systems = result.systems || [];
+        
+        if (systems.length === 0) {
+            console.log('没有配置系统，跳过检查');
+            return;
+        }
+        
+        console.log(`强制检查 ${systems.length} 个系统的余额`);
+        
+        // 检查每个系统，无视时间间隔
+        for (const system of systems) {
+            try {
+                console.log(`强制检查系统 ${system.name} 的余额`);
+                await checkSystemQuota(system);
+                
+                // 稍微延迟，避免同时发送太多请求
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+            } catch (error) {
+                console.error(`强制检查系统 ${system.name} 余额失败:`, error);
+            }
+        }
+        
+        // 更新图标徽章状态
+        await updateBadgeStatus();
+        
+    } catch (error) {
+        console.error('强制检查所有系统余额失败:', error);
     }
 } 
